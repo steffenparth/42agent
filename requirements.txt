@@ -1,0 +1,30 @@
+# Core uAgents Framework
+uagents==0.22.5
+
+# LangChain Integration
+langchain==0.3.23
+langchain-openai==0.2.14
+
+# LangGraph for Stateful Agents
+langgraph==0.3.20
+
+# CrewAI Integration
+crewai==0.126.0
+
+# uAgents Adapter (includes LangChain, CrewAI, MCP support)
+uagents-adapter==0.4.0
+
+# Web search and external APIs
+tavily-python>=0.3.0
+requests>=2.31.0
+
+# Data validation and environment
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# Production monitoring
+structlog>=23.1.0
+
+# Additional utilities
+aiohttp>=3.8.0
+asyncio-mqtt>=0.16.0 
