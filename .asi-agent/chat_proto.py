@@ -133,6 +133,11 @@ class DefaultChatHandler(ChatHandler):
                 content = msg.content[0]
                 if hasattr(content, 'text'):
                     message_text = content.text
+                elif hasattr(content, 'type') and content.type == 'text':
+                    message_text = getattr(content, 'text', '')
+                else:
+                    # Handle session start/end messages
+                    message_text = f"Session message: {type(content).__name__}"
             
             # Get LLM response
             if self.llm_function:

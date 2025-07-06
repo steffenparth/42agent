@@ -33,12 +33,26 @@ agent = Agent(
 # Initialize chat handler with LLM function
 chat_handler = DefaultChatHandler(get_completion)
 
+# Global client instance - initialized once at startup
+global_client = None
+
 @agent.on_event("startup")
 async def on_startup(ctx: Context):
     """Enhanced startup handler"""
+    global global_client
+    
     ctx.logger.info(f"🚀 ASI Agent started: {agent.address}")
     ctx.logger.info("📡 Agentverse integration ready")
     ctx.logger.info("💬 Enhanced chat protocol loaded")
+    
+    # Initialize the client once at startup
+    try:
+        from client import ETHGlobalClient
+        global_client = ETHGlobalClient()
+        ctx.logger.info("📁 Database initialized successfully")
+    except Exception as e:
+        ctx.logger.error(f"❌ Failed to initialize database: {e}")
+        global_client = None
     
     # Initialize any required resources
     ctx.storage.set("startup_time", datetime.now().isoformat())
@@ -53,7 +67,7 @@ async def on_shutdown(ctx: Context):
     chat_handler.cleanup_old_sessions()
     
     # Log final statistics
-    message_count = ctx.storage.get("message_count", 0)
+    message_count = ctx.storage.get("message_count") or 0
     ctx.logger.info(f"📊 Total messages processed: {message_count}")
 
 @chat_proto.on_message(ChatMessage)
@@ -61,11 +75,17 @@ async def handle_message(ctx: Context, sender: str, msg: ChatMessage):
     """Enhanced message handler with session management and error handling"""
     try:
         # Increment message counter
-        current_count = ctx.storage.get("message_count", 0)
+        current_count = ctx.storage.get("message_count") or 0
         ctx.storage.set("message_count", current_count + 1)
         
         # Log incoming message
-        message_text = msg.content[0].text if msg.content else "No content"
+        message_text = "No content"
+        if msg.content and len(msg.content) > 0:
+            content = msg.content[0]
+            if hasattr(content, 'text'):
+                message_text = content.text
+            elif hasattr(content, 'type') and content.type == 'text':
+                message_text = getattr(content, 'text', 'No text content')
         ctx.logger.info(f"📨 Message #{current_count + 1} from {sender}: {message_text[:50]}...")
         
         # Store sender in session
@@ -80,7 +100,42 @@ async def handle_message(ctx: Context, sender: str, msg: ChatMessage):
             )
         )
         
-        # Process message with enhanced handler
+        # Skip processing for session management messages
+        if "Session message:" in message_text or message_text == "No content":
+            ctx.logger.info(f"📝 Skipping session message from {sender}")
+            return
+            
+        # Always try semantic search first - let the embedding model decide relevance
+        try:
+            global global_client
+            
+            if global_client is None:
+                ctx.logger.warning("⚠️  Database not initialized, skipping search")
+                raise Exception("Database not available")
+            
+            # Use the message as the search query
+            search_query = message_text
+            
+            # Perform semantic search with adaptive thresholds
+            results = global_client.search_projects(search_query, top_k=5, min_similarity=0.15)
+            
+            if results:
+                response_text = f"🔍 Found {len(results)} relevant projects from ETHGlobal:\n\n"
+                for i, project in enumerate(results, 1):
+                    response_text += f"{i}. **{project.project_title}**\n"
+                    response_text += f"   {project.short_description[:150]}...\n"
+                    response_text += f"   🔗 URL: {project.url}\n\n"
+                
+                response_text += "💡 You can ask me to search for any topic, technology, or project type!"
+                await ctx.send(sender, create_text_message(response_text))
+                ctx.logger.info(f"✅ Semantic project search response sent to {sender}")
+                return
+                
+        except Exception as e:
+            ctx.logger.error(f"Error in project search: {e}")
+            # Continue to LLM processing if search fails
+        
+        # If no relevant projects found or search failed, process with LLM
         response = await chat_handler.handle_message(ctx, sender, msg)
         
         if response.success:
@@ -118,11 +173,13 @@ async def handle_project_search(ctx: Context, sender: str, msg: ProjectSearchReq
     try:
         ctx.logger.info(f"🔍 Project search request from {sender}: {msg.query}")
         
-        # Import client here to avoid circular imports
-        from client import ETHGlobalClient
+        global global_client
         
-        client = ETHGlobalClient()
-        results = client.search_projects(msg.query)
+        if global_client is None:
+            await ctx.send(sender, create_error_message("Database not available"))
+            return
+        
+        results = global_client.search_projects(msg.query)
         
         if msg.category:
             from client import ProjectCategory
@@ -157,11 +214,13 @@ async def handle_agentverse_search(ctx: Context, sender: str, msg: AgentverseSea
     try:
         ctx.logger.info(f"🤖 Agentverse search request from {sender}: {msg.query}")
         
-        # Import client here to avoid circular imports
-        from client import ETHGlobalClient
+        global global_client
         
-        client = ETHGlobalClient()
-        agents = await client.agentverse_client.search_agents(msg.query, msg.limit)
+        if global_client is None:
+            await ctx.send(sender, create_error_message("Database not available"))
+            return
+        
+        agents = await global_client.agentverse_client.search_agents(msg.query, msg.limit)
         
         # Format response
         response_text = f"Found {len(agents)} agents for '{msg.query}':\n\n"

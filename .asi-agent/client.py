@@ -4,6 +4,7 @@ ETHGlobal Showcase Projects Client with Agentverse Integration
 
 A client for interacting with scraped ETHGlobal showcase projects data.
 Supports data loading, filtering, searching, and Agentverse API integration.
+Now includes semantic search using embedding models.
 """
 
 import json
@@ -17,6 +18,9 @@ from dataclasses import dataclass
 from enum import Enum
 import os
 from pydantic import Field
+
+# Import our embedding model
+from embedding_model import ProjectEmbeddingModel
 
 # Optional Fetch.ai imports - only if uagents is available
 try:
@@ -73,7 +77,24 @@ class Project:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Project':
         """Create Project from dictionary"""
-        return cls(**data)
+        # Handle the case where data has a 'full_project' field
+        if 'full_project' in data and isinstance(data['full_project'], dict):
+            # Use the full_project data
+            project_data = data['full_project']
+        else:
+            # Use the data directly
+            project_data = data
+            
+        # Extract only the fields that the Project class expects
+        return cls(
+            url=project_data.get('url', ''),
+            project_title=project_data.get('project_title', ''),
+            short_description=project_data.get('short_description', ''),
+            created_at=project_data.get('created_at', ''),
+            project_description=project_data.get('project_description', ''),
+            how_its_made=project_data.get('how_its_made', ''),
+            thumbnail=project_data.get('thumbnail', '')
+        )
 
 class AgentverseClient:
     """Client for interacting with Agentverse API"""
@@ -143,15 +164,66 @@ class AgentverseClient:
                 return None
 
 class ETHGlobalClient:
-    """Client for interacting with ETHGlobal showcase projects data"""
+    """Client for interacting with ETHGlobal showcase projects data with semantic search"""
     
     def __init__(self, data_file: str = "ethglobal_showcase_projects.json"):
         self.data_file = Path(data_file)
         self.projects: List[Project] = []
         self.agentverse_client = AgentverseClient()
-        self._load_data()
+        
+        # Initialize embedding model
+        self.embedding_model = ProjectEmbeddingModel()
+        
+        # PRIMARY: Try to load saved embeddings first (treat as main database)
+        embeddings_file = Path("project_embeddings.pkl")
+        if embeddings_file.exists():
+            try:
+                self.embedding_model.load_embeddings(str(embeddings_file))
+                logger.info("📁 Loaded saved embeddings")
+                
+                # Use projects from embeddings as primary source
+                if self.embedding_model.projects:
+                    try:
+                        # Convert project data to Project objects, handling different formats
+                        self.projects = []
+                        for project_data in self.embedding_model.projects:
+                            if isinstance(project_data, dict):
+                                try:
+                                    self.projects.append(Project.from_dict(project_data))
+                                except Exception as e:
+                                    logger.warning(f"⚠️  Skipping invalid project dict: {e}")
+                            elif isinstance(project_data, str):
+                                # Try to parse JSON string
+                                try:
+                                    import json
+                                    parsed_data = json.loads(project_data)
+                                    self.projects.append(Project.from_dict(parsed_data))
+                                except Exception as e:
+                                    logger.warning(f"⚠️  Skipping invalid project string: {e}")
+                            else:
+                                logger.warning(f"⚠️  Skipping invalid project data type: {type(project_data)}")
+                        
+                        logger.info(f"📁 Loaded {len(self.projects)} projects from embeddings database")
+                        logger.info(f"📁 Loaded {len(self.embedding_model.embeddings)} embeddings")
+                        return  # Success! Exit here, don't load JSON
+                    except Exception as e:
+                        logger.error(f"❌ Error converting project data: {e}")
+                        logger.warning("⚠️  Falling back to JSON file due to conversion error")
+                else:
+                    logger.warning("⚠️  Embeddings loaded but no projects found in embeddings file")
+            except Exception as e:
+                logger.error(f"❌ Error loading embeddings: {e}")
+        
+        # FALLBACK: Only load JSON if embeddings failed or don't exist
+        logger.info("🔄 Falling back to JSON file...")
+        self._load_projects_data()
+        if self.projects:
+            logger.info("📁 Creating new embeddings from JSON data...")
+            self.embedding_model.load_projects_from_data([p.to_dict() for p in self.projects])
+        else:
+            logger.error("❌ No projects loaded from either embeddings or JSON file")
     
-    def _load_data(self) -> None:
+    def _load_projects_data(self) -> None:
         """Load project data from JSON file"""
         try:
             if not self.data_file.exists():
@@ -168,6 +240,16 @@ class ETHGlobalClient:
             logger.error(f"Error loading data: {e}")
             self.projects = []
     
+    def _load_data_and_create_embeddings(self) -> None:
+        """Load project data and create embeddings (legacy method)"""
+        self._load_projects_data()
+        if self.projects:
+            self.embedding_model.load_projects_from_data([p.to_dict() for p in self.projects])
+    
+    def _load_data(self) -> None:
+        """Load project data from JSON file (legacy method)"""
+        self._load_projects_data()
+    
     def save_data(self, filename: Optional[str] = None) -> None:
         """Save current projects to JSON file"""
         if filename:
@@ -183,8 +265,22 @@ class ETHGlobalClient:
         except Exception as e:
             logger.error(f"Error saving data: {e}")
     
-    def search_projects(self, query: str, case_sensitive: bool = False) -> List[Project]:
-        """Search projects by title, description, or content"""
+    def search_projects(self, query: str, top_k: int = 5, min_similarity: float = 0.2) -> List[Project]:
+        """Search projects using semantic similarity"""
+        # Use embedding model for semantic search
+        search_results = self.embedding_model.search_projects(query, top_k, min_similarity)
+        
+        # Convert to Project objects
+        results = []
+        for result in search_results:
+            project_data = result["project"]
+            project = Project.from_dict(project_data)
+            results.append(project)
+        
+        return results
+    
+    def search_projects_simple(self, query: str, case_sensitive: bool = False) -> List[Project]:
+        """Simple text-based search (legacy method)"""
         if not case_sensitive:
             query = query.lower()
         
