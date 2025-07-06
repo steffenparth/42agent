@@ -1,0 +1,10 @@
+[project]
+name = "42agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.3.1",
+    "sentence-transformers>=5.0.0",
+]
