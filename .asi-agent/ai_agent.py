@@ -21,11 +21,16 @@ from chat_proto import (
     MessageType
 )
 
-# Create the agent with enhanced configuration
+# Define Cloudflare-Tunnel URL (aus "start_public_agent.sh") hier eintragen:
+PUBLIC_ENDPOINT = "https://7b90-83-144-23-155.ngrok-free.app"
+
+# Create the agent with enhanced configuration - discoverable on ASI:One TESTNET
 agent = Agent(
-    name="asi-agent-enhanced",
-    seed="b7f8c2d9e5a4f1c3d6e7b8a9c0f2e1d4",
+    name="ProjectFinderAgent",
+    seed="project-finder-123",  # statischer Seed
+    endpoint=PUBLIC_ENDPOINT,
     port=8000,
+    network="testnet",
     mailbox=True,
     publish_agent_details=True,
 )
@@ -41,9 +46,10 @@ async def on_startup(ctx: Context):
     """Enhanced startup handler"""
     global global_client
     
-    ctx.logger.info(f"🚀 ASI Agent started: {agent.address}")
+    ctx.logger.info(f"🚀 ProjectFinderAgent started: {agent.address}")
     ctx.logger.info("📡 Agentverse integration ready")
     ctx.logger.info("💬 Enhanced chat protocol loaded")
+    ctx.logger.info("🌐 Public endpoint: " + PUBLIC_ENDPOINT)
     
     # Initialize the client once at startup
     try:
@@ -258,13 +264,14 @@ quota_proto = QuotaProtocol(
 agent.include(quota_proto)
 
 if __name__ == "__main__":
-    print("🚀 Starting Enhanced ASI Agent...")
+    print("🚀 Starting ProjectFinderAgent...")
     print("📡 Agentverse integration: ENABLED")
     print("💬 Enhanced chat protocol: ENABLED")
     print("🔍 Project search: ENABLED")
     print("🤖 Agentverse search: ENABLED")
     print("⏰ Periodic cleanup: ENABLED")
     print("📊 Rate limiting: ENABLED")
+    print("🌐 Public endpoint: " + PUBLIC_ENDPOINT)
     print("\nUse Ctrl+C to stop the agent")
     
     try:
